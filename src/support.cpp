@@ -105,6 +105,7 @@ DynamicRecord &DynamicRecord::operator=(const DynamicRecord &source) {
   outgoing.assign(source.outgoing.begin(), source.outgoing.end());
   body.assign(source.body.begin(), source.body.end());
   ids.assign(source.ids.begin(), source.ids.end());
+  outgoing_offset_map = source.outgoing_offset_map;
   return *this;
 }
 

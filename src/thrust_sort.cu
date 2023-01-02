@@ -109,8 +109,8 @@ radix_sort(const text_type &source,
 	  	{
           node_type next_node_id = source[start_position[idx] + position + 1];
           sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
+	  	  ++i;
 	  	});
-	  ++i;
     }
 	pool.wait_for_tasks();
 

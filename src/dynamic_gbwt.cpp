@@ -1181,7 +1181,9 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
 
   std::chrono::steady_clock::time_point begin, end;
   begin = std::chrono::steady_clock::now();
+  std::cout << "[info] before radix_sort\n";
   auto sorted_seqs = radix_sort(source, start_position, gbwt.sigma());
+  std::cout << "[info] after radix_sort\n";
   end = std::chrono::steady_clock::now();
   auto sort_time =
       std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)

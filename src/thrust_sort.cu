@@ -101,18 +101,37 @@ radix_sort(const text_type &source,
 
     begin = std::chrono::steady_clock::now();
     i = 0;
+
+	//std::unordered_map<node_type, size_type> space_map(seq_id.size());
+	//// 1. calculate size
+	//for (auto &idx : seq_id) {
+	//  if (space_map.count(keys[i]-1) > 0){
+	//    ++space_map[keys[i] - 1];
+	//  }
+	//  else {
+	//  	space_map[keys[i] - 1] = 1;
+	//  }
+	//  ++i;
+	//}
+	//// 2. allocate space
+	//for (auto &[key, val] : space_map) {
+    //  sorted_seqs[key].resize(val);
+	//}
+	//space_map.clear();
+	// 3. assign value 
+	//i = 0;
     for (auto &idx : seq_id) {
-      //node_type next_node_id = source[start_position[idx] + position + 1];
-      //sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
-      pool.push_task(
-	    [&]
-	  	{
-          node_type next_node_id = source[start_position[idx] + position + 1];
-          sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
-	  	  ++i;
-	  	});
+      node_type next_node_id = source[start_position[idx] + position + 1];
+      sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
+      //pool.push_task(
+	  //  [&]
+	  //	{
+      //    node_type next_node_id = source[start_position[idx] + position + 1];
+      //    sorted_seqs[keys[i] - 1][j] = std::make_pair(idx, next_node_id);
+	  //	  ++i;
+	  //	});
     }
-	pool.wait_for_tasks();
+	//pool.wait_for_tasks();
 
     seqs_size = seq_id.size();
     end = std::chrono::steady_clock::now();

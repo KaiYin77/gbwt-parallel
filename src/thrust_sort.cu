@@ -27,6 +27,9 @@ radix_sort(const text_type &source,
   thrust::device_vector<node_type> d_keys;
   thrust::device_vector<size_type> d_seq_id;
   std::iota(seq_id.begin(), seq_id.end(), 0);
+  
+  const int thread_num = std::thread::hardware_concurrency() - 1;
+  BS::thread_pool_light pool(thread_num);
 
   // emplace_back the ENDMARKER's outgoing node
   size_type i = 0;
@@ -99,10 +102,17 @@ radix_sort(const text_type &source,
     begin = std::chrono::steady_clock::now();
     i = 0;
     for (auto &idx : seq_id) {
-      node_type next_node_id = source[start_position[idx] + position + 1];
-      sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
-      ++i;
+      //node_type next_node_id = source[start_position[idx] + position + 1];
+      //sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
+      pool.push_task(
+	    [&]
+	  	{
+          node_type next_node_id = source[start_position[idx] + position + 1];
+          sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
+	  	});
+	  ++i;
     }
+	pool.wait_for_tasks();
 
     seqs_size = seq_id.size();
     end = std::chrono::steady_clock::now();

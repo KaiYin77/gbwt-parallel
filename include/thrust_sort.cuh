@@ -1,5 +1,6 @@
 #pragma once
 #include <gbwt/utils.h>
+#include <gbwt/BS_thread_pool_light.h>
 //#include <thrust/sort.h>
 
 using gbwt::node_type;

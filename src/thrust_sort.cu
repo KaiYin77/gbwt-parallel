@@ -19,18 +19,18 @@ radix_sort(const text_type &source,
   double init_time = 0;
   begin = std::chrono::steady_clock::now();
 
-  std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs(
-      total_nodes);
   size_type seqs_size = start_position.size();
+  std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;
+  sorted_seqs.reserve(total_nodes);
+  for(auto &s: sorted_seqs) {
+  	s.reserve(seqs_size);
+  }
   thrust::host_vector<size_type> seq_id(seqs_size);
   thrust::host_vector<node_type> keys(seqs_size);
   thrust::device_vector<node_type> d_keys;
   thrust::device_vector<size_type> d_seq_id;
   std::iota(seq_id.begin(), seq_id.end(), 0);
   
-  const int thread_num = std::thread::hardware_concurrency() - 1;
-  BS::thread_pool_light pool(thread_num);
-
   // emplace_back the ENDMARKER's outgoing node
   size_type i = 0;
   /*
@@ -43,7 +43,7 @@ radix_sort(const text_type &source,
                   .count();
 
   double key_time = 0, h2d_copy_time = 0, sort_time, d2h_copy_time = 0,
-         remove_time = 0, place_time = 0;
+         remove_time = 0, space_time = 0, place_time = 0;
 
   for (size_type position = 0; seqs_size > 0; ++position) {
     begin = std::chrono::steady_clock::now();
@@ -100,38 +100,13 @@ radix_sort(const text_type &source,
             .count();
 
     begin = std::chrono::steady_clock::now();
-    i = 0;
-
-	//std::unordered_map<node_type, size_type> space_map(seq_id.size());
-	//// 1. calculate size
-	//for (auto &idx : seq_id) {
-	//  if (space_map.count(keys[i]-1) > 0){
-	//    ++space_map[keys[i] - 1];
-	//  }
-	//  else {
-	//  	space_map[keys[i] - 1] = 1;
-	//  }
-	//  ++i;
-	//}
-	//// 2. allocate space
-	//for (auto &[key, val] : space_map) {
-    //  sorted_seqs[key].resize(val);
-	//}
-	//space_map.clear();
-	// 3. assign value 
-	//i = 0;
+	i = 0;
     for (auto &idx : seq_id) {
       node_type next_node_id = source[start_position[idx] + position + 1];
-      sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
-      //pool.push_task(
-	  //  [&]
-	  //	{
-      //    node_type next_node_id = source[start_position[idx] + position + 1];
-      //    sorted_seqs[keys[i] - 1][j] = std::make_pair(idx, next_node_id);
-	  //	  ++i;
-	  //	});
+      //sorted_seqs[keys[i] - 1].emplace_back(std::make_pair(idx, next_node_id));
+      sorted_seqs[keys[i] - 1].push_back({ idx, next_node_id });
+	  ++i;
     }
-	//pool.wait_for_tasks();
 
     seqs_size = seq_id.size();
     end = std::chrono::steady_clock::now();

@@ -1172,9 +1172,6 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   }
 
   // ---- Update incoming edge ---- //
-  const int thread_num = std::min((unsigned int)gbwt.sigma(),
-                                  std::thread::hardware_concurrency() - 1);
-  BS::thread_pool_light pool(thread_num);
 
   // ---- Radix Sort  ---- //
 #include <chrono>
@@ -1211,6 +1208,9 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   // the endmarker at the begining.
   gbwt.record(source[seqs[0].pos]).increment(ENDMARKER);
 
+  const int thread_num = std::min((unsigned int)gbwt.sigma(),
+                                  std::thread::hardware_concurrency() - 1);
+  BS::thread_pool_light pool(thread_num);
   std::shared_mutex gbwt_mutex;
   for (auto &start_pos : start_position) {
     pool.push_task(&gbwt::update_incoming_edge, std::ref(gbwt),

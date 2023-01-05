@@ -718,17 +718,72 @@ void updateRecordsParallel(
         current.outgoing.push_back(edge_type(next_node, outgoing_offset));
         new_body.addEdge();
       }
+    
+    }
+    // TODO: Get body offset
+    // linear search for current position
+    size_type cur_pos;
+    if (curr_node!=ENDMARKER) {
+      size_type pos = (*start_pos)[seq_id];
+      for (size_type cur=pos;cur<source.size();++cur) {
+        if (source[cur]==curr_node && source[cur+1]==next_node) {
+          cur_pos = cur - pos;
+          break;
+        }
+        else if (source[cur]==ENDMARKER) {
+          std::cerr << "Cannt find position.\n";
+          std::exit(1);
+        }
+      }
+    } else {
+      cur_pos = current.body.size();
     }
     if (next_node == ENDMARKER) // Sample sequence id.
     {
-      int size = new_samples.size();
-      new_samples.push_back(sample_type(size, seq_id));
+      if (iter->second <= body_offset - new_body.size()) {
+        new_body.insert(*iter);
+        ++iter;
+      } else {
+        run_type temp(iter->first, body_offset - new_body.size());
+        new_body.insert(temp);
+        iter->second -= temp.second;
+      }
     }
     new_body.insert(outrank);
-    insert_count++;
+    ++insert_count;
+    // Add runs until the end.
+    while(iter!=current.body.end())
+    {
+      new_body.insert(*iter);
+      ++iter;
+    }
+    swapBody(current, new_body);
+    // update body offset
+    current.updateBodyOffset(cur_pos);
+    
+    // Sample sequence id.
+    if(next_node == ENDMARKER)  {
+      unsigned int sample_offset = current.getSampleOffset(cur_pos);
+      // Add old samples until the offset.
+      while(sample_iter!=current.ids.end() &&
+        sample_iter->first < sample_offset)
+      {
+        new_samples.push_back(sample_type(sample_iter->first, sample_iter->second));
+        ++sample_iter;
+      }
+      int size = new_samples.size();
+      new_samples.push_back(sample_type(size, seq_id));
+      while (sample_iter != current.ids.end()) // Add the rest of the old samples.
+      {
+        new_samples.push_back(
+            sample_type(sample_iter->first + 1, sample_iter->second));
+        ++sample_iter;
+      }
+      current.ids.swap(new_samples);
+      // update sample offset
+      current.updateSampleOffset(cur_pos);
+    }
   }
-  swapBody(current, new_body);
-  current.ids.swap(new_samples);
 }
 
 void updateRecordsParallel2(
@@ -893,7 +948,7 @@ void sortAllSequencesAllPosition(
     sorted.emplace_back(curr_sorted);
     serialSortSequences(tmp);
     if (tmp.empty()) {
-      printSortedMatrix(sorted);
+      //printSortedMatrix(sorted);
       return;
     }
     curr++;
@@ -1190,7 +1245,6 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;
   sortAllSequencesAllPosition(seqs, sorted_seqs, source);
   */
-
   // debug section of radix sort
   /*
   int tmp = 0;
@@ -1227,6 +1281,7 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   std::cout << "finish building outgoing maps\n";
   /*
   // debug section of outgoing_offset_map
+  /*
   for (short_type node_id = 1; node_id < gbwt.sigma(); ++node_id) {
     DynamicRecord &record = gbwt.record(node_id);
     std::cout << "node_id: " << node_id << "\n";
@@ -1244,6 +1299,12 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
     end_sort.emplace_back(std::make_pair(sequence.id, sequence.next));
   }
   endmarker_sorted.emplace_back(end_sort);
+
+  // build unordered map of start position for 
+  std::unique_ptr<std::unordered_map<size_type, size_type>> start_pos_map(
+      new std::unordered_map<size_type, size_type>);
+  for (auto &sequence:seqs)
+    (*start_pos_map)[sequence.id] = sequence.pos;
 
   // parallel update nodes
   size_type node_num = gbwt.sigma();

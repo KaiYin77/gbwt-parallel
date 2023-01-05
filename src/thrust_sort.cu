@@ -22,9 +22,7 @@ radix_sort(const text_type &source,
   size_type seqs_size = start_position.size();
   std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;
   sorted_seqs.reserve(total_nodes);
-  for(auto &s: sorted_seqs) {
-  	s.reserve(seqs_size);
-  }
+  
   thrust::host_vector<size_type> seq_id(seqs_size);
   thrust::host_vector<node_type> keys(seqs_size);
   thrust::device_vector<node_type> d_keys;
@@ -43,7 +41,7 @@ radix_sort(const text_type &source,
                   .count();
 
   double key_time = 0, h2d_copy_time = 0, sort_time, d2h_copy_time = 0,
-         remove_time = 0, space_time = 0, place_time = 0;
+         remove_time = 0, place_time = 0;
 
   for (size_type position = 0; seqs_size > 0; ++position) {
     begin = std::chrono::steady_clock::now();

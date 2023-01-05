@@ -9,7 +9,7 @@ SOURCE_DIR=src
 
 # Multithreading with OpenMP.
 PARALLEL_FLAGS=-fopenmp -pthread
-LIBS=-L$(LIB_DIR) -lsdsl -ldivsufsort -ldivsufsort64
+LIBS=-L$(LIB_DIR) -lsdsl -ldivsufsort -ldivsufsort64 -lprofiler
 
 # Apple Clang does not support OpenMP directly, so we need special handling.
 ifeq ($(shell uname -s), Darwin)

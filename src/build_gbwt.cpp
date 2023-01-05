@@ -32,6 +32,7 @@
 #include <gbwt/test.h>
 #include <gbwt/variants.h>
 
+#include <gperftools/profiler.h>
 using namespace gbwt;
 
 //------------------------------------------------------------------------------
@@ -120,6 +121,7 @@ size_type insertTextFile(DynamicGBWT& index, const std::string& filename, const 
 int
 main(int argc, char** argv)
 {
+  ProfilerStart("./profile/case1.prof");
   Config config(argc, argv);
   if(!(config.validate())) { std::exit(EXIT_FAILURE); }
   std::string gbwt_name = config.output_base + DynamicGBWT::EXTENSION;
@@ -278,7 +280,8 @@ main(int argc, char** argv)
     else { std::cout << "Index verified in " << verify_seconds << " seconds" << std::endl; }
     std::cout << std::endl;
   }
-
+  
+  ProfilerStop();
   return 0;
 }
 

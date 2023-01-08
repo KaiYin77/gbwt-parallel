@@ -26,7 +26,8 @@
 #include <gbwt/bwtmerge.h>
 #include <gbwt/dynamic_gbwt.h>
 
-#include <thrust_sort.cuh>
+// #include <thrust_sort.cuh>
+#include <multi_thread_sort.h>
 
 #include <memory>
 #include <shared_mutex>
@@ -1179,7 +1180,7 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   }
 
 // ---- Thrust Radix Sort  ---- //
-#include <chrono>
+/*#include <chrono>
   std::chrono::steady_clock::time_point begin, end;
   begin = std::chrono::steady_clock::now();
   std::cout << "[info] before radix_sort\n";
@@ -1190,7 +1191,7 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   auto sort_time =
       std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
           .count();
-  std::cerr << "radix sort time: " << sort_time << " ms\n";
+  std::cerr << "radix sort time: " << sort_time << " ms\n";*/
   // printSortedMatrix(sorted_seqs);
   /*
   std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;
@@ -1210,6 +1211,20 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
     }
   }
   */
+
+// ---- Multi Thread Radix Sort  ---- //
+#include <chrono>
+  std::chrono::steady_clock::time_point begin, end;
+  begin = std::chrono::steady_clock::now();
+  std::cout << "[info] before radix_sort\n";
+  std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;
+  multi_thread_sort(source, sequence_id, start_pos_map, sorted_seqs);
+  std::cout << "[info] after radix_sort\n";
+  end = std::chrono::steady_clock::now();
+  auto sort_time =
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
+          .count();
+  std::cerr << "radix sort time: " << sort_time << " ms\n";
 
   // ---- Update incoming edge ---- //
   const int thread_num = std::min((unsigned int)gbwt.sigma(),

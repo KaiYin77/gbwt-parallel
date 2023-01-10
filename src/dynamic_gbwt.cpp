@@ -34,6 +34,7 @@
 
 // add
 #include <gbwt/utils.h>
+#include <chrono>
 
 namespace gbwt {
 
@@ -672,6 +673,9 @@ void updateRecordsParallel(
     const node_type curr_node, size_type sample_interval,
     std::unique_ptr<std::unordered_map<node_type, size_type>> &endmarker_edges,
     std::unique_ptr<std::unordered_map<size_type, size_type>> &start_pos) {
+  std::chrono::steady_clock::time_point begin, end;
+  begin = std::chrono::steady_clock::now();
+  std::cout << "[info] before updateRecordsParallel\n";
   int index;
   if (curr_node == ENDMARKER)
     index = curr_node;
@@ -715,10 +719,6 @@ void updateRecordsParallel(
     if (curr_node != ENDMARKER) {
       size_type pos = (*start_pos)[seq_id];
       for (size_type cur = pos; cur < source.size(); ++cur) {
-        if (seq_id==4367) {
-          std::cout << "current position in source: " << cur << ", ";
-          std::cout << "node: " << source[cur] << std::endl;
-        }
         if (source[cur] == curr_node && source[cur + 1] == next_node) {
           cur_pos = cur - pos;
           break;
@@ -785,6 +785,11 @@ void updateRecordsParallel(
       // update sample offset
     }
   }
+  end = std::chrono::steady_clock::now();
+  auto update_node_parallel_time =
+      std::chrono::duration_cast<std::chrono::microseconds>(end - begin)
+          .count();
+  std::cerr << "update_node_parallel time: " << update_node_parallel_time << " us\n";
 }
 
 /*
@@ -1159,7 +1164,6 @@ void build_offset_map(DynamicGBWT &gbwt, const size_type node_id) {
 template <>
 size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
                  const text_type &source, size_type sample_interval) {
-#include <chrono>
   std::chrono::steady_clock::time_point begin, end;
   
   // Sanity check sample interval only here.
@@ -1225,7 +1229,7 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
     }
   }
   */
-
+  /*
   if (seqs[0].id>2320) {
     std::cout << "Radix sort mat\n";
     std::cout << "At node: 608776\n";
@@ -1234,7 +1238,7 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
     std::cout << std::endl;
   } else {
     return 1;
-  }
+  }*/
 
   // ---- Update incoming edge ---- //
   const int thread_num = std::min((unsigned int)gbwt.sigma(),
@@ -1245,6 +1249,8 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   // the endmarker at the begining.
   gbwt.record(source[seqs[0].pos]).increment(ENDMARKER);
 
+  begin = std::chrono::steady_clock::now();
+  std::cout << "[info] update_incoming_edge\n";
   std::shared_mutex gbwt_mutex;
   for (auto &sequence : seqs) {
     size_type start_position = sequence.pos;
@@ -1252,12 +1258,24 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
                    std::cref(source), start_position, std::ref(gbwt_mutex));
   }
   pool.wait_for_tasks();
+  end = std::chrono::steady_clock::now();
+  auto update_incoming_edge_time =
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
+          .count();
+  std::cerr << "update_incoming_edge time: " << update_incoming_edge_time << " ms\n";
 
   // ---- Build outgoing_offset_map ---- //
+  begin = std::chrono::steady_clock::now();
+  std::cout << "[info] build outgoing_offset_map\n";
   for (short_type node_id = 1; node_id < gbwt.sigma(); ++node_id) {
     pool.push_task(&gbwt::build_offset_map, std::ref(gbwt), node_id);
   }
   pool.wait_for_tasks();
+  end = std::chrono::steady_clock::now();
+  auto outgoing_offset_map =
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
+          .count();
+  std::cerr << "outgoing_offset_map time: " << outgoing_offset_map << " ms\n";
 
   // debug section of outgoing_offset_map
   /*
@@ -1280,8 +1298,10 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   endmarker_sorted.emplace_back(end_sort);
 
   // parallel update nodes
+  begin = std::chrono::steady_clock::now();
+  std::cout << "[info] updateRecordParallel\n";
   size_type node_num = gbwt.sigma();
-  for (node_type i = 0; i < node_num; ++i) {
+  for (node_type i = 0; i < node_num; i+=2) {
     if (i == 0) {
       if (seqs[0].id > 2320) {
       updateRecordsParallel(gbwt, source, endmarker_sorted, i,
@@ -1311,6 +1331,11 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
     }
   }
   pool.wait_for_tasks();
+  end = std::chrono::steady_clock::now();
+  auto updateRecordsParallel_time =
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
+          .count();
+  std::cerr << "updateRecordParallel time: " << updateRecordsParallel_time << " ms\n";
 
   std::cerr << "\n-----  Record Before Recode  -----\n";
   print_record(gbwt.bwt);

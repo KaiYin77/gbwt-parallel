@@ -666,48 +666,44 @@ void updateRecords(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   gbwt.header.size += seqs.size();
 }
 
-void
-updateRecordsParallel(DynamicGBWT& gbwt, const text_type &source, 
-  std::vector<std::vector<std::pair<size_type, node_type>>> &sorted_mat, 
-  const node_type &curr_node, size_type sample_interval,
-  std::unique_ptr<std::unordered_map<node_type, size_type>>& endmarker_edges)
-{
+void updateRecordsParallel(
+    DynamicGBWT &gbwt, const text_type &source,
+    std::vector<std::vector<std::pair<size_type, node_type>>> &sorted_mat,
+    const node_type curr_node, size_type sample_interval,
+    std::unique_ptr<std::unordered_map<node_type, size_type>> &endmarker_edges,
+    std::unique_ptr<std::unordered_map<size_type, size_type>> &start_pos
+    , const node_type max_size_node) {
+#include <chrono>
+  
+  std::chrono::steady_clock::time_point begin, end;
+  begin = std::chrono::steady_clock::now();
   int index;
-  if (curr_node==ENDMARKER)
+  if (curr_node == ENDMARKER)
     index = curr_node;
   else
-    index = curr_node-1;
-  DynamicRecord& current = gbwt.record(curr_node);
-  RunMerger new_body(current.outdegree());
-  std::vector<sample_type> new_samples;
+    index = curr_node - 1;
+
+  DynamicRecord &current = gbwt.record(curr_node);
+  std::uint64_t insert_count = 0;
+  std::uint64_t curr_income_id = 0;
+  std::uint64_t body_offset;
+
   std::vector<run_type>::iterator iter = current.body.begin();
   std::vector<sample_type>::iterator sample_iter = current.ids.begin();
-  size_type insert_count = 0;
-  int outgoing_size = current.outdegree();
-  // Add old runs until the end.
-  while(new_body.size() < outgoing_size)
-  {
-    new_body.insert(*iter);
-    ++iter;
-  }
-  // Add old samples until the end.
-  while(sample_iter != current.ids.end())
-  {
-    new_samples.push_back(sample_type(sample_iter->first, sample_iter->second));
-    ++sample_iter;
-  }
-  for(size_type i = 0; i < sorted_mat[index].size(); ++i)
-  {
-    // Determine the edge to the next node or add it if it does not exist.
+  RunMerger new_body(current.outdegree());
+  std::vector<sample_type> new_samples;
+  for (size_type i = 0; i < sorted_mat[index].size(); ++i) {
     rank_type outrank = 0;
     size_type seq_id = sorted_mat[index][i].first;
     node_type next_node = sorted_mat[index][i].second;
-    if(curr_node == ENDMARKER)
-    {
+
+    // Determine the edge to the next node or add it if it does not exist.
+    // determine outrank
+    if (curr_node == ENDMARKER) {
       auto iter = endmarker_edges->find(next_node);
-      if(iter != endmarker_edges->end()) { outrank = iter->second; }
-      else
-      {
+      if (iter != endmarker_edges->end()) {
+        outrank = iter->second;
+      } else {
         outrank = current.outdegree();
         // find incoming of next node to determine offset
         size_type outgoing_offset = current.outgoing_offset_map[next_node];
@@ -715,27 +711,69 @@ updateRecordsParallel(DynamicGBWT& gbwt, const text_type &source,
         new_body.addEdge();
         (*endmarker_edges)[next_node] = outrank;
       }
-    }
-    else
-    {
+    } else {
       outrank = current.edgeToLinear(next_node);
-      if(outrank >= current.outdegree())
-      {
+      if (outrank >= current.outdegree()) {
         size_type outgoing_offset = current.outgoing_offset_map[next_node];
         current.outgoing.push_back(edge_type(next_node, outgoing_offset));
         new_body.addEdge();
       }
     }
-    if(next_node == ENDMARKER)  // Sample sequence id.
-    {
-      int size = new_samples.size();
-      new_samples.push_back(sample_type(size, seq_id));
+    
+    // find position of body
+    body_offset = current.getBodyOffset(curr_income_id);
+    int outgoing_size = current.outdegree();
+    // Add old runs until the offset.
+    while (new_body.size() < body_offset) {
+      if (iter->second <= body_offset - new_body.size()) {
+        new_body.insert(*iter);
+        ++iter;
+      } else {
+        run_type temp(iter->first, body_offset - new_body.size());
+        new_body.insert(temp);
+        iter->second -= temp.second;
+      }
     }
     new_body.insert(outrank);
-    insert_count++;
+    ++insert_count;
+    current.updateBodyOffset(curr_income_id);
+
+    // Sample sequence id.
+    if (next_node == ENDMARKER) {
+      std::uint64_t sample_offset = current.getSampleOffset(curr_income_id);
+      // Add old samples until the offset.
+      while (sample_iter != current.ids.end() &&
+             sample_iter->first < sample_offset) {
+        new_samples.push_back(
+            sample_type(sample_iter->first, sample_iter->second));
+        ++sample_iter;
+      }
+      int size = new_samples.size();
+      new_samples.push_back(sample_type(size, seq_id));
+      current.updateSampleOffset(curr_income_id);
+    }
+  }
+  // Add runs until the end.
+  while (iter != current.body.end()) {
+    new_body.insert(*iter);
+    ++iter;
   }
   swapBody(current, new_body);
+  // Add the rest of the old samples.
+  while (sample_iter != current.ids.end())
+  {
+    new_samples.push_back(
+        sample_type(sample_iter->first + insert_count, sample_iter->second));
+    ++sample_iter;
+  }
   current.ids.swap(new_samples);
+  end = std::chrono::steady_clock::now();
+  if (curr_node==max_size_node) {
+    auto init_time = std::chrono::duration<double>{end- begin};
+  
+    std::cout << "Update max size node finish.\n";
+    std::cout << "Time Used: " << init_time.count() << "s.\n";
+  }
 }
 
 /*
@@ -811,61 +849,46 @@ void sortSequences(std::vector<Sequence> &seqs) {
  * [Authored by KaiYin] Sort all sequences in advance
  */
 
-void
-nextSequencePosition(Sequence& seq)
-{
-  seq.pos++;
-}
+void nextSequencePosition(Sequence &seq) { seq.pos++; }
 
-void
-advanceSequencePosition(Sequence& seq, const text_type& text)
-{
+void advanceSequencePosition(Sequence &seq, const text_type &text) {
   seq.curr = seq.next;
   seq.next = text[seq.pos];
 }
 
-void
-advanceSequencePosition(Sequence& seq, const vector_type& text)
-{
+void advanceSequencePosition(Sequence &seq, const vector_type &text) {
   seq.curr = seq.next;
   seq.next = text[seq.pos];
 }
 
-void
-advanceSequencePosition(Sequence& seq, const GBWT& source)
-{
+void advanceSequencePosition(Sequence &seq, const GBWT &source) {
   node_type curr = seq.next;
   const CompressedRecord current = source.record(curr);
   CompressedRecordIterator iter(current);
   seq.curr = seq.next;
-  while(iter.offset() <= seq.pos) { ++iter; }
+  while (iter.offset() <= seq.pos) {
+    ++iter;
+  }
   seq.next = current.successor(iter->first);
 }
 
-void 
-printSortedMatrix(
-	std::vector<std::vector<std::pair<size_type, node_type>>>& sorted)
-{
-	for (size_t i=0; i < sorted.size(); i++) 
-	{
-	  for (size_t j=0; j < sorted[i].size(); j++)
-	  {
-	  	 std::cout << "(" << (int) i << ", " << (int) j << ") -> "
-				   << "Pair(" 
-				   << (int) sorted[i][j].first 
-				   << ", "
-				   << (int) sorted[i][j].second << ")\n";
-	  }
-	  std::cout << "\n";
-	} 
+void printSortedMatrix(
+    std::vector<std::vector<std::pair<size_type, node_type>>> &sorted) {
+  for (size_t i = 0; i < sorted.size(); i++) {
+    for (size_t j = 0; j < sorted[i].size(); j++) {
+      std::cout << "(" << (int)i << ", " << (int)j << ") -> "
+                << "Pair(" << (int)sorted[i][j].first << ", "
+                << (int)sorted[i][j].second << ")\n";
+    }
+    std::cout << "\n";
+  }
 }
 
 void serialSortSequences(std::vector<Sequence> &seqs) {
-  std::sort(seqs.begin(), seqs.end(), 
-    [](const Sequence & a, const Sequence & b) -> bool
-  { 
-      return a.curr < b.curr; 
-  });
+  std::sort(seqs.begin(), seqs.end(),
+            [](const Sequence &a, const Sequence &b) -> bool {
+              return a.curr < b.curr;
+            });
   size_type head = 0;
   while (head < seqs.size() && seqs[head].next == ENDMARKER) {
     head++;
@@ -878,18 +901,16 @@ void serialSortSequences(std::vector<Sequence> &seqs) {
   }
 }
 
-void
-sortAllSequencesAllPosition(
-  std::vector<Sequence>& seqs,
-  std::vector<std::vector<std::pair<size_type, node_type>>>& sorted,
-  const text_type& source)
-{
-  //FIXME: copy constructor wastes time and space
+void sortAllSequencesAllPosition(
+    std::vector<Sequence> &seqs,
+    std::vector<std::vector<std::pair<size_type, node_type>>> &sorted,
+    const text_type &source) {
+  // FIXME: copy constructor wastes time and space
   std::vector<Sequence> tmp(seqs);
   node_type curr = 1;
   while (1) {
     std::vector<std::pair<size_type, node_type>> curr_sorted;
-    for (Sequence& s : tmp) {
+    for (Sequence &s : tmp) {
       if (curr == s.next) {
         nextSequencePosition(s);
         advanceSequencePosition(s, source);
@@ -899,7 +920,7 @@ sortAllSequencesAllPosition(
     sorted.emplace_back(curr_sorted);
     serialSortSequences(tmp);
     if (tmp.empty()) {
-      //printSortedMatrix(sorted);
+      // printSortedMatrix(sorted);
       return;
     }
     curr++;
@@ -1024,95 +1045,9 @@ void print_record(const std::vector<DynamicRecord> &bwt) {
   Update the bidirectional flag in the header before calling this.
 */
 
-/*
-template<>
-size_type
-insert(DynamicGBWT& gbwt, std::vector<Sequence>& seqs, const text_type& source, size_type sample_interval)
-{
-  // Sanity check sample interval only here.
-  if(sample_interval == 0) { sample_interval = std::numeric_limits<size_type>::max(); }
-
-  // The outgoing edges are not expected to be sorted during construction. As the endmarker
-  // may have millions of outgoing edges, we need a faster way of mapping destination nodes
-  // to edges.
-  std::unique_ptr<std::unordered_map<node_type, size_type>> endmarker_edges(new std::unordered_map<node_type, size_type>);
-  if(gbwt.sigma() > 0)
-  {
-    const DynamicRecord& endmarker = gbwt.record(ENDMARKER);
-    for(rank_type outrank = 0; outrank < endmarker.outdegree(); outrank++)
-    {
-      (*endmarker_edges)[endmarker.successor(outrank)] = outrank;
-    }
-  }
-
-  // sort sequences
-
-  std::vector<std::vector<std::pair<size_type, node_type>> sorted;
-  std::vector<std::pair<size_type, size_type>> seq_idx; // index in text for every sequence
-  std::vector<std::pair<size_type, node_type> text; // current node for every sequence
-  for (Sequence &s:seqs) {
-    seq_idx.push_back(std::make_pair(s.pos, s.id));
-    text.push_back(std::make_pair(s.pos, s.curr));
-  }
-
-  std::vector<size_type> prev_sorted;
-
-  // for node 0(endmarker)
-  // advance position and update current node
-  for (int i=0;i<seq_idx.size();++i) {
-    prev_sorted.push_back(std::make_pair(s.id, s.next));
-    sorted.push_back(prev_sorted);
-    ++seq_idx[i].first;
-    ++text[i].first;
-    text[i].second = source[text[i].first];
-  }
-
-  // record sorted result
-  while (1) {
-    std::vector<size_type> curr_sorted;
-    std::sort(text.begin(), text.end(), 
-      [](const std::pair<size_type, node_type>& a, const std::pair<size_type, node_type> &b) -> bool
-      {
-        return a.second<b.second;
-      });
-    node_type curr = text[0].second;
-    for (int i=0;i<text.size();++i) {
-      if (text[i].second==curr) {
-        for (int j=0;j<seq_idx.size();++j) {
-          if (seq_idx[j].first==text[i].first) {
-            ++seq_idx[j].first; // advance position
-            curr_sorted.push_back(seq_idx[j].second);
-            break;
-          } 
-          ++text[i].first; // advance position
-          text[i].second = source[text[i].first]; // update current node
-          if (text[i].second==ENDMARKER) { // remove the sequence has reach the end
-            std::vector<std::pair<size_type, node_type>>::iterator it = text.begin();
-            std::advance(it, i);
-            text.erase(it);
-            --i;
-          }
-        } 
-      } else {
-        break;
-      }
-    } sorted.push_back(curr_sorted);
-    prev_sorted = curr_sorted;
-  }
-
-  // parallel update nodes
-  size_type node_num = gbwt.nodeSize();
-  for (node_type i=0;i<node_num;++i) {
-    // add to thread pool later
-    updateRecordsParallel(gbwt, source, sorted, i, sample_interval, endmarker_edges);
-  }
-}
-*/
-
-template<class Source>
-size_type
-insert(DynamicGBWT& gbwt, std::vector<Sequence>& seqs, const Source& source, size_type sample_interval)
-{
+template <class Source>
+size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
+                 const Source &source, size_type sample_interval) {
   // Sanity check sample interval only here.
   if (sample_interval == 0) {
     sample_interval = std::numeric_limits<size_type>::max();
@@ -1130,17 +1065,23 @@ insert(DynamicGBWT& gbwt, std::vector<Sequence>& seqs, const Source& source, siz
     }
   }
 
-  //std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;	
+  // std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;
   // Serial version
-  //sortAllSequencesAllPosition(seqs, sorted_seqs, source);
+  // sortAllSequencesAllPosition(seqs, sorted_seqs, source);
 
-  for(size_type iterations = 1; ; iterations++)
-  {
-    updateRecords(gbwt, seqs, iterations, sample_interval, endmarker_edges); // Insert the next nodes into the GBWT.
-    nextPosition(seqs, source); // Determine the next position for each sequence.
-    sortSequences(seqs); // Sort for the next iteration and remove the ones that have finished.
-    if(seqs.empty()) { return iterations; }
-    rebuildOffsets(gbwt, seqs, endmarker_edges); // Rebuild offsets in outgoing edges and sequences.
+  for (size_type iterations = 1;; iterations++) {
+    updateRecords(gbwt, seqs, iterations, sample_interval,
+                  endmarker_edges); // Insert the next nodes into the GBWT.
+    nextPosition(seqs,
+                 source); // Determine the next position for each sequence.
+    sortSequences(seqs); // Sort for the next iteration and remove the ones that
+                         // have finished.
+    if (seqs.empty()) {
+      return iterations;
+    }
+    rebuildOffsets(
+        gbwt, seqs,
+        endmarker_edges); // Rebuild offsets in outgoing edges and sequences.
     advancePosition(seqs, source); // Move the sequences to the next position.
   }
 }
@@ -1190,40 +1131,11 @@ void build_offset_map(DynamicGBWT &gbwt, const size_type node_id) {
       // insert the target node's offset to outgoing_offset_map
       std::unique_lock<std::shared_mutex> write_lock(
           target_record.record_mutex);
-      target_record.outgoing_offset_map.insert({node_id, outgoing_offset});
+      target_record.outgoing_offset_map[node_id] = outgoing_offset;
     }
     outgoing_offset += record.incoming[i].second;
   }
   return;
-}
-
-template<class Source>
-void
-sortAllSequencesAllPosition(
-  std::vector<Sequence>& seqs,
-  std::vector<std::vector<std::pair<size_type, node_type>>>& sorted,
-  const Source& source)
-{
-  //FIXME: copy constructor wastes time and space
-  std::vector<Sequence> tmp(seqs);
-  node_type curr = 1;
-  while (1) {
-    std::vector<std::pair<size_type, node_type>> curr_sorted;
-    for (Sequence& s : tmp) {
-      if (curr == s.next) {
-        nextSequencePosition(s);
-        advanceSequencePosition(s, source);
-        curr_sorted.emplace_back(std::make_pair(s.id, s.next));
-      }
-    }
-    sorted.emplace_back(curr_sorted);
-    serialSortSequences(tmp);
-    if (tmp.empty()) {
-      //printSortedMatrix(sorted);
-      return;
-    }
-    curr++;
-  }
 }
 
 /*
@@ -1236,6 +1148,11 @@ sortAllSequencesAllPosition(
 template <>
 size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
                  const text_type &source, size_type sample_interval) {
+//#include <chrono>
+  std::chrono::steady_clock::time_point begin, end;
+
+  std::cout << "Inside insertion\n";
+  
   // Sanity check sample interval only here.
   if (sample_interval == 0) {
     sample_interval = std::numeric_limits<size_type>::max();
@@ -1254,20 +1171,30 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
   }
 
   // ---- Store the start position ---- //
-  std::vector<size_type> start_pos;
+  // build unordered map of start position for each sequence
+  std::unique_ptr<std::unordered_map<size_type, size_type>> start_pos_map(
+      new std::unordered_map<size_type, size_type>);
+  std::vector<size_type> sequence_id;
+  sequence_id.reserve(seqs.size());
   for (auto &sequence : seqs) {
-    start_pos.emplace_back(sequence.pos);
+    (*start_pos_map)[sequence.id] = sequence.pos;
+    sequence_id.emplace_back(sequence.id);
   }
 
-  // ---- Update incoming edge ---- //
-  const int thread_num = std::min((unsigned int)gbwt.sigma(),
-                                  std::thread::hardware_concurrency() - 1);
-  BS::thread_pool_light pool(thread_num);
-  
-  // ---- Radix Sort  ---- //
-  auto sorted_seqs = radix_sort(source, start_pos, gbwt.sigma());
-  int tmp = 0;
-  
+  std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs(gbwt.sigma());
+
+// ---- Thrust Radix Sort  ---- //
+ 
+  radix_sort(source, sequence_id, start_pos_map, sorted_seqs, gbwt.sigma());
+  /*
+  std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;
+  sortAllSequencesAllPosition(seqs, sorted_seqs, source);
+  */
+
+  // ---- Serial Radix Sort  ---- //
+  // std::vector<std::vector<std::pair<size_type, node_type>>> sorted_seqs;
+  // sortAllSequencesAllPosition(seqs, sorted_seqs, source);
+
   // debug section of radix sort
   /*
   for (auto &vec : sorted_seqs) {
@@ -1277,9 +1204,12 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
     }
   }
   */
-  
 
   // ---- Update incoming edge ---- //
+  const int thread_num = std::min((unsigned int)gbwt.sigma(),
+                                  std::thread::hardware_concurrency() - 1);
+  BS::thread_pool_light pool(thread_num);
+
 
   // add the incoming for the first path's first node since sdsl does not put
   // the endmarker at the begining.
@@ -1292,50 +1222,60 @@ size_type insert(DynamicGBWT &gbwt, std::vector<Sequence> &seqs,
                    std::cref(source), start_position, std::ref(gbwt_mutex));
   }
   pool.wait_for_tasks();
-  
+
   // ---- Build outgoing_offset_map ---- //
   for (short_type node_id = 1; node_id < gbwt.sigma(); ++node_id) {
     pool.push_task(&gbwt::build_offset_map, std::ref(gbwt), node_id);
   }
   pool.wait_for_tasks();
-  
-  /*
-  // debug section of outgoing_offset_map
-  for (short_type node_id = 1; node_id < gbwt.sigma(); ++node_id) {
-    DynamicRecord &record = gbwt.record(node_id);
-    std::cout << "node_id: " << node_id << "\n";
-    for (auto &item : record.outgoing_offset_map) {
-      std::cout << "(" << item.first << ", " << item.second << ")\n";
-    }
-  }
-  */
 
-  // ---- Given the radix sort table, update outgoing edges, body, and ids of Records(nodes) ---- //
+  size_type max_size = 0;
+  node_type max_size_node;
+  int i=0;
+
+  for (auto &node:sorted_seqs) {
+    if (node.size()>max_size) {
+      max_size_node = i+1;
+      max_size = node.size();
+    }
+    ++i;
+  }
+
+  // ---- Given the radix sort table, update outgoing edges, body, and ids of
+  // Records(nodes) ---- //
   std::vector<std::vector<std::pair<size_type, node_type>>> endmarker_sorted;
   std::vector<std::pair<size_type, node_type>> end_sort;
-  for (auto &sequence:seqs) {
+  for (auto &sequence : seqs) {
     end_sort.emplace_back(std::make_pair(sequence.id, sequence.next));
-  } endmarker_sorted.emplace_back(end_sort);
+  }
+  endmarker_sorted.emplace_back(end_sort);
 
   // parallel update nodes
   size_type node_num = gbwt.sigma();
-  for (node_type i=0;i<node_num;++i) {
-    if (i==0) 
-      updateRecordsParallel(gbwt, source, endmarker_sorted, i, sample_interval, endmarker_edges);
-    else
-      updateRecordsParallel(gbwt, source, sorted_seqs, i, sample_interval, endmarker_edges);
-    /*
-    pool.push_task(&gbwt::updateRecordsParallel, std::ref(gbwt), 
-      std::cref(source), std::ref(sorted_seqs), std::cref(i), sample_interval, 
-      std::ref(endmarker_edges));
-    */
+  for (node_type i = 0; i < node_num; ++i) {
+    if (i == 0) {
+      /*
+      updateRecordsParallel(gbwt, source, endmarker_sorted, i,
+        sample_interval, endmarker_edges, start_pos_map, max_size_node);
+      */
+      pool.push_task(&gbwt::updateRecordsParallel, std::ref(gbwt),
+                     std::cref(source), std::ref(endmarker_sorted), i,
+                     sample_interval, std::ref(endmarker_edges),
+                     std::ref(start_pos_map), max_size_node);
+    } else {
+      /*
+      updateRecordsParallel(gbwt, source, sorted_seqs, i, sample_interval,
+        endmarker_edges, start_pos_map, max_size_node);
+      */
+      pool.push_task(&gbwt::updateRecordsParallel, std::ref(gbwt),
+                     std::cref(source), std::ref(sorted_seqs), i,
+                     sample_interval, std::ref(endmarker_edges),
+                     std::ref(start_pos_map), max_size_node);
+    }
   }
   pool.wait_for_tasks();
 
-  std::cerr << "\n-----  Record Before Recode  -----\n";
-  print_record(gbwt.bwt);
-  std::cerr << "------------------------------------\n";
-
+  //print_record(gbwt.bwt);
   return 1;
 } // namespace gbwt
 
@@ -2211,9 +2151,9 @@ void GBWTBuilder::finish() {
 
   // Finally recode the index to make it serializable.
   this->index.recode();
-  std::cerr << "\n-----  Record After Recode  -----\n";
-  print_record(this->index.bwt);
-  std::cerr << "----------------------------------\n";
+  // std::cerr << "\n-----  Record After Recode  -----\n";
+  // print_record(this->index.bwt);
+  // std::cerr << "----------------------------------\n";
 }
 
 void GBWTBuilder::flush() {

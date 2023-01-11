@@ -97,6 +97,10 @@ DynamicRecord::DynamicRecord(const DynamicRecord &source) {
   outgoing.assign(source.outgoing.begin(), source.outgoing.end());
   body.assign(source.body.begin(), source.body.end());
   ids.assign(source.ids.begin(), source.ids.end());
+  //
+  outgoing_offset_map = source.outgoing_offset_map;
+  incoming_offset_map = source.incoming_offset_map;
+  sample_incoming_offset_map = source.sample_incoming_offset_map;
 }
 
 DynamicRecord &DynamicRecord::operator=(const DynamicRecord &source) {
@@ -105,6 +109,10 @@ DynamicRecord &DynamicRecord::operator=(const DynamicRecord &source) {
   outgoing.assign(source.outgoing.begin(), source.outgoing.end());
   body.assign(source.body.begin(), source.body.end());
   ids.assign(source.ids.begin(), source.ids.end());
+  //
+  outgoing_offset_map = source.outgoing_offset_map;
+  incoming_offset_map = source.incoming_offset_map;
+  sample_incoming_offset_map = source.sample_incoming_offset_map;
   return *this;
 }
 
@@ -120,6 +128,10 @@ void DynamicRecord::swap(DynamicRecord &another) {
     this->outgoing.swap(another.outgoing);
     this->body.swap(another.body);
     this->ids.swap(another.ids);
+    //
+    this->outgoing_offset_map.swap(another.outgoing_offset_map);
+    this->incoming_offset_map.swap(another.incoming_offset_map);
+    this->sample_incoming_offset_map.swap(another.sample_incoming_offset_map);
   }
 }
 
@@ -129,6 +141,55 @@ std::pair<size_type, size_type> DynamicRecord::runs() const {
     result.second += (this->successor(run.first) == ENDMARKER ? run.second : 1);
   }
   return result;
+}
+
+//------------------------------------------------------------------------------
+
+std::uint64_t DynamicRecord::getBodyOffset(std::uint64_t &income_id) {
+  std::uint64_t accumulate = 0;
+  std::uint64_t body_offset = 0;
+  for (auto &e:this->incoming) {
+    if (this->incoming_offset_map.count(e.first)==0) {
+      income_id = e.first;
+      this->incoming_offset_map[income_id] = 0;
+      break;
+    } else if ((e.second-this->incoming_offset_map[e.first])>0) {
+      income_id = e.first;
+      accumulate += this->incoming_offset_map[e.first];
+      break;
+    } else {
+      accumulate += e.second;
+    }
+  }
+  body_offset = accumulate;
+  return body_offset;
+}
+
+void DynamicRecord::updateBodyOffset(const std::uint64_t &income_id) {
+  ++this->incoming_offset_map[income_id];
+}
+
+std::uint64_t DynamicRecord::getSampleOffset(const size_type &income_id) {
+  if (this->sample_incoming_offset_map.count(income_id)==0) {
+    std::uint64_t accumulate = 0;
+    for (auto &e:incoming) {
+      if (e.first>income_id)
+        break;
+      else {
+        if (this->sample_incoming_offset_map.count(e.first)!=0)
+          accumulate+=this->sample_incoming_offset_map[e.first];
+      }
+    } this->sample_incoming_offset_map[income_id] = accumulate;
+  }
+  return this->sample_incoming_offset_map[income_id];
+}
+
+void DynamicRecord::updateSampleOffset(const size_type &income_id) {
+  ++this->sample_incoming_offset_map[income_id];
+  for(auto &e:incoming) {
+    if (e.first>income_id && this->sample_incoming_offset_map.count(e.first)!=0)
+      ++sample_incoming_offset_map[e.first];
+  }
 }
 
 //------------------------------------------------------------------------------

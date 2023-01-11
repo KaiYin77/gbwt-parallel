@@ -105,6 +105,8 @@ struct DynamicRecord {
 
   // the key is the node_id, and value is the offset
   std::unordered_map<node_type, size_type> outgoing_offset_map;
+  std::unordered_map<short_type, short_type> incoming_offset_map;
+  std::unordered_map<short_type, short_type> sample_incoming_offset_map;
 
   //------------------------------------------------------------------------------
 
@@ -120,6 +122,13 @@ struct DynamicRecord {
 
   void clear();
   void swap(DynamicRecord &another);
+
+  //------------------------------------------------------------------------------
+
+  std::uint64_t getBodyOffset(std::uint64_t &income_id);
+  void updateBodyOffset(const std::uint64_t &income_id);
+  std::uint64_t getSampleOffset(const std::uint64_t &income_id);
+  void updateSampleOffset(const std::uint64_t &income_id);
 
   //------------------------------------------------------------------------------
 

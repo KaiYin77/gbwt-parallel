@@ -62,3 +62,5 @@ DOI: [10.1093/bioinformatics/btu014](https://doi.org/10.1093/bioinformatics/btu0
 Adam M. Novak, Erik Garrison, and Benedict Paten: **A graph extension of the positional Burrows-Wheeler transform and its applications**.
 Algorithms for Molecular Biology 12:18, 2017.
 DOI: [10.1186/s13015-017-0109-9](https://doi.org/10.1186/s13015-017-0109-9)
+
+Barak Shoshany, *"A C++17 Thread Pool for High-Performance Scientific Computing"*, [doi:10.5281/zenodo.4742687](https://doi.org/10.5281/zenodo.4742687), [arXiv:2105.00613](https://arxiv.org/abs/2105.00613) (May 2021) [GitHub repository](https://github.com/bshoshany/thread-pool)
